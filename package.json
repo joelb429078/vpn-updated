@@ -1,0 +1,24 @@
+{
+  "name": "vpn-updated",
+  "version": "1.0.0",
+  "description": "My VPN Client",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^39.2.3",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "fs-extra": "^11.3.2"
+  }
+}

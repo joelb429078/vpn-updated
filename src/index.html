@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VPNBook Client</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; padding: 20px; text-align: center; display: flex; flex-direction: column; height: 90vh; }
+        
+        h1 { color: #00d1b2; margin-bottom: 5px; }
+        p.subtitle { color: #aaa; margin-top: 0; font-size: 0.9em; }
+
+        .control-box {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px auto;
+            width: 80%;
+            max-width: 400px;
+        }
+
+        label { display: block; text-align: left; margin-bottom: 8px; color: #ccc; }
+        
+        input { 
+            width: 90%; 
+            padding: 12px; 
+            background: #333; 
+            border: 1px solid #444; 
+            color: white; 
+            border-radius: 4px; 
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        button { 
+            width: 100%; 
+            padding: 12px; 
+            cursor: pointer; 
+            background: #00d1b2; 
+            border: none; 
+            color: white; 
+            font-size: 16px; 
+            font-weight: bold;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #00b89c; }
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        #status { font-weight: bold; margin-top: 15px; min-height: 24px; }
+        .connected { color: #4caf50; }
+        .error { color: #f44336; }
+
+        #logs { 
+            flex-grow: 1;
+            margin-top: 20px; 
+            text-align: left; 
+            font-family: monospace; 
+            background: #000; 
+            padding: 15px; 
+            overflow-y: scroll; 
+            border: 1px solid #333;
+            font-size: 12px;
+            color: #0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>VPNBook Connect</h1>
+    <p class="subtitle">Secure • Free • Manual Auth</p>
+    
+    <div class="control-box">
+        <label>Current Password (from vpnbook.com):</label>
+        <input type="text" id="password" placeholder="e.g. 545ae57">
+        
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        
+        <div id="status">Status: Idle</div>
+    </div>
+
+    <div id="logs">Waiting for connection...</div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        function connect() {
+            const password = document.getElementById('password').value.trim();
+            
+            if(!password) {
+                alert("Please enter the password from vpnbook.com");
+                return;
+            }
+
+            // UI Updates
+            document.getElementById('status').innerText = "Connecting...";
+            document.getElementById('status').className = "";
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('connectBtn').innerText = "Connecting...";
+            
+            // Send to Backend
+            ipcRenderer.invoke('connect-vpn', { password });
+        }
+
+        // --- LISTENERS ---
+
+        ipcRenderer.on('vpn-log', (e, log) => {
+            const logDiv = document.getElementById('logs');
+            // Append log line
+            const line = document.createElement('div');
+            line.innerText = log.trim();
+            logDiv.appendChild(line);
+            
+            // Auto scroll to bottom
+            logDiv.scrollTop = logDiv.scrollHeight;
+        });
+
+        ipcRenderer.on('vpn-status', (e, status) => {
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = status;
+            
+            if(status === 'Connected') {
+                statusEl.className = 'connected';
+                document.getElementById('connectBtn').innerText = "Connected";
+            } else if (status === 'AuthFailed') {
+                statusEl.className = 'error';
+                statusEl.innerText = "Authentication Failed (Wrong Password)";
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('connectBtn').innerText = "Try Again";
+            }
+        });
+    </script>
+</body>
+</html>
