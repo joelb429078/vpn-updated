@@ -4,18 +4,20 @@
   "description": "My VPN Client",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
-    "start": "tsc && electron ."
+    "build": "node init && tsc",
+    "start": "node init && tsc && electron ."
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^39.2.3",
+    "electron": "^45.2.3",
     "electron-builder": "^26.0.12",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "fs-extra": "^11.3.2"
+    "dotenv": "^8.2.0",
+    "fs-extra": "^11.3.2",
+    "node-fetch": "^3.3.2"
   }
 }
