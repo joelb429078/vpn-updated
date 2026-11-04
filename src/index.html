@@ -1,131 +1,224 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'">
     <title>VPNBook Client</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; padding: 20px; text-align: center; display: flex; flex-direction: column; height: 90vh; }
-        
-        h1 { color: #00d1b2; margin-bottom: 5px; }
-        p.subtitle { color: #aaa; margin-top: 0; font-size: 0.9em; }
+        :root {
+            --bg: #0d1117;
+            --bg-glow: #12202b;
+            --surface: #161b22;
+            --surface-2: #1f2630;
+            --border: #2a323d;
+            --text: #e6edf3;
+            --muted: #8b949e;
+            --accent: #00d1b2;
+            --accent-dim: rgba(0, 209, 178, 0.14);
+            --warn: #f5b041;
+            --warn-dim: rgba(245, 176, 65, 0.14);
+            --danger: #ff5c6c;
+            --danger-dim: rgba(255, 92, 108, 0.14);
+            --off: #4b5563;
+            --state: var(--off);
+            --state-dim: rgba(75, 85, 99, 0.18);
+        }
+        body[data-state="connecting"] { --state: var(--warn); --state-dim: var(--warn-dim); }
+        body[data-state="connected"]  { --state: var(--accent); --state-dim: var(--accent-dim); }
+        body[data-state="error"]      { --state: var(--danger); --state-dim: var(--danger-dim); }
 
-        .control-box {
-            background: #2a2a2a;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px auto;
-            width: 80%;
-            max-width: 400px;
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(ellipse 120% 60% at 50% -10%, var(--bg-glow), transparent 70%),
+                var(--bg);
+            display: flex;
+            flex-direction: column;
+            padding: 22px 22px 18px;
+            gap: 16px;
+            user-select: none;
         }
 
-        label { display: block; text-align: left; margin-bottom: 8px; color: #ccc; }
-        
-        input { 
-            width: 90%; 
-            padding: 12px; 
-            background: #333; 
-            border: 1px solid #444; 
-            color: white; 
-            border-radius: 4px; 
-            font-size: 16px;
-            margin-bottom: 15px;
+        /* Header */
+        header { display: flex; align-items: center; gap: 10px; }
+        .logo {
+            width: 30px; height: 30px; border-radius: 9px;
+            display: grid; place-items: center;
+            background: var(--accent-dim); color: var(--accent);
         }
-
-        button { 
-            width: 100%; 
-            padding: 12px; 
-            cursor: pointer; 
-            background: #00d1b2; 
-            border: none; 
-            color: white; 
-            font-size: 16px; 
-            font-weight: bold;
-            border-radius: 4px;
-            transition: background 0.2s;
+        header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+        header h1 span { color: var(--accent); }
+        .pill {
+            margin-left: auto;
+            display: inline-flex; align-items: center; gap: 7px;
+            font-size: 12px; font-weight: 600;
+            padding: 5px 11px; border-radius: 999px;
+            background: var(--state-dim); color: var(--state);
+            transition: background .3s, color .3s;
         }
-        button:hover { background: #00b89c; }
-        button:disabled { background: #555; cursor: not-allowed; }
-
-        #status { font-weight: bold; margin-top: 15px; min-height: 24px; }
-        .connected { color: #4caf50; }
-        .error { color: #f44336; }
-
-        #logs { 
-            flex-grow: 1;
-            margin-top: 20px; 
-            text-align: left; 
-            font-family: monospace; 
-            background: #000; 
-            padding: 15px; 
-            overflow-y: scroll; 
-            border: 1px solid #333;
-            font-size: 12px;
-            color: #0f0;
+        .pill::before {
+            content: ''; width: 7px; height: 7px; border-radius: 50%;
+            background: currentColor;
         }
+        body[data-state="connecting"] .pill::before { animation: blink 1s infinite; }
+
+        /* Power button hero */
+        .hero { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 6px 0 2px; }
+        .power-wrap { position: relative; width: 168px; height: 168px; display: grid; place-items: center; }
+        .power-wrap::before, .power-wrap::after {
+            content: ''; position: absolute; inset: 0; border-radius: 50%;
+            border: 2px solid var(--state); opacity: .25;
+            transition: border-color .3s;
+        }
+        .power-wrap::after { inset: 14px; opacity: .45; }
+        body[data-state="connected"] .power-wrap::before { animation: pulse 2.4s ease-out infinite; }
+        body[data-state="connecting"] .power-wrap::after {
+            border-color: transparent; border-top-color: var(--state); opacity: 1;
+            animation: spin .9s linear infinite;
+        }
+        #actionBtn {
+            position: relative;
+            width: 116px; height: 116px; border-radius: 50%;
+            border: none; cursor: pointer;
+            background: radial-gradient(circle at 50% 35%, var(--surface-2), var(--surface));
+            color: var(--state);
+            box-shadow: 0 0 0 1px var(--border), 0 10px 30px rgba(0,0,0,.45), 0 0 40px var(--state-dim);
+            display: grid; place-items: center;
+            transition: transform .15s, color .3s, box-shadow .3s;
+        }
+        #actionBtn:hover:not(:disabled) { transform: scale(1.04); }
+        #actionBtn:active:not(:disabled) { transform: scale(.97); }
+        #actionBtn:disabled { cursor: progress; }
+        #actionBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+        #actionBtn svg { width: 44px; height: 44px; }
+
+        .status-text { text-align: center; }
+        #status { font-size: 20px; font-weight: 600; margin: 0; min-height: 26px; }
+        #substatus { font-size: 13px; color: var(--muted); margin-top: 3px; min-height: 18px; font-variant-numeric: tabular-nums; }
+
+        /* Settings card */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            display: flex; flex-direction: column; gap: 14px;
+        }
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .6px; }
+        .field { position: relative; }
+        select, input {
+            width: 100%;
+            padding: 11px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            color: var(--text);
+            font: inherit; font-size: 14px;
+            outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        select { appearance: none; padding-right: 36px; cursor: pointer; }
+        select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+        select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
+        .chev { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--muted); }
+        input { padding-right: 44px; user-select: text; }
+        #togglePw {
+            position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+            width: 32px; height: 32px; border: none; border-radius: 7px;
+            background: transparent; color: var(--muted); cursor: pointer;
+            display: grid; place-items: center;
+        }
+        #togglePw:hover { background: var(--surface-2); color: var(--text); }
+        .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+        /* Logs */
+        .logs-card { flex: 1; min-height: 120px; display: flex; flex-direction: column; padding: 0; gap: 0; overflow: hidden; }
+        .logs-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 14px; border-bottom: 1px solid var(--border);
+        }
+        .logs-head label { margin: 0; }
+        #clearLogs {
+            border: none; background: transparent; color: var(--muted);
+            font: inherit; font-size: 12px; cursor: pointer; padding: 3px 8px; border-radius: 6px;
+        }
+        #clearLogs:hover { background: var(--surface-2); color: var(--text); }
+        #logs {
+            flex: 1; overflow-y: auto;
+            padding: 10px 14px;
+            font-family: 'Cascadia Mono', Consolas, monospace;
+            font-size: 11.5px; line-height: 1.55;
+            color: #9fb3c8;
+            user-select: text;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        #logs .empty { color: var(--off); font-style: italic; }
+        #logs .err { color: var(--danger); }
+        #logs .ok { color: var(--accent); }
+        #logs::-webkit-scrollbar { width: 8px; }
+        #logs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        @keyframes pulse { 0% { transform: scale(.85); opacity: .5; } 100% { transform: scale(1.15); opacity: 0; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes blink { 50% { opacity: .25; } }
+        @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
     </style>
 </head>
-<body>
-    <h1>VPNBook Connect</h1>
-    <p class="subtitle">Secure • Free • Manual Auth</p>
-    
-    <div class="control-box">
-        <label>Current Password (from vpnbook.com):</label>
-        <input type="text" id="password" placeholder="e.g. 545ae57">
-        
-        <button id="connectBtn" onclick="connect()">Connect</button>
-        
-        <div id="status">Status: Idle</div>
-    </div>
+<body data-state="disconnected">
+    <header>
+        <div class="logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z"/></svg>
+        </div>
+        <h1>VPNBook <span>Pro</span></h1>
+        <div class="pill" id="pill">Off</div>
+    </header>
 
-    <div id="logs">Waiting for connection...</div>
+    <section class="hero">
+        <div class="power-wrap">
+            <button id="actionBtn" aria-label="Connect">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+            </button>
+        </div>
+        <div class="status-text">
+            <p id="status">Not connected</p>
+            <div id="substatus">Pick a server and press the button</div>
+        </div>
+    </section>
 
-    <script>
-        const { ipcRenderer } = require('electron');
+    <section class="card">
+        <div>
+            <label for="serverList">Server</label>
+            <div class="field">
+                <select id="serverList">
+                    <option>Loading servers...</option>
+                </select>
+                <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+        </div>
+        <div>
+            <label for="password">Password</label>
+            <div class="field">
+                <input type="password" id="password" placeholder="e.g. 545ae57" autocomplete="off" spellcheck="false">
+                <button id="togglePw" type="button" aria-label="Show password">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+            </div>
+            <div class="hint">Current password is listed on vpnbook.com</div>
+        </div>
+    </section>
 
-        function connect() {
-            const password = document.getElementById('password').value.trim();
-            
-            if(!password) {
-                alert("Please enter the password from vpnbook.com");
-                return;
-            }
+    <section class="card logs-card">
+        <div class="logs-head">
+            <label>Connection log</label>
+            <button id="clearLogs" type="button">Clear</button>
+        </div>
+        <div id="logs"><div class="empty">Logs will appear here...</div></div>
+    </section>
 
-            // UI Updates
-            document.getElementById('status').innerText = "Connecting...";
-            document.getElementById('status').className = "";
-            document.getElementById('connectBtn').disabled = true;
-            document.getElementById('connectBtn').innerText = "Connecting...";
-            
-            // Send to Backend
-            ipcRenderer.invoke('connect-vpn', { password });
-        }
-
-        // --- LISTENERS ---
-
-        ipcRenderer.on('vpn-log', (e, log) => {
-            const logDiv = document.getElementById('logs');
-            // Append log line
-            const line = document.createElement('div');
-            line.innerText = log.trim();
-            logDiv.appendChild(line);
-            
-            // Auto scroll to bottom
-            logDiv.scrollTop = logDiv.scrollHeight;
-        });
-
-        ipcRenderer.on('vpn-status', (e, status) => {
-            const statusEl = document.getElementById('status');
-            statusEl.innerText = status;
-            
-            if(status === 'Connected') {
-                statusEl.className = 'connected';
-                document.getElementById('connectBtn').innerText = "Connected";
-            } else if (status === 'AuthFailed') {
-                statusEl.className = 'error';
-                statusEl.innerText = "Authentication Failed (Wrong Password)";
-                document.getElementById('connectBtn').disabled = false;
-                document.getElementById('connectBtn').innerText = "Try Again";
-            }
-        });
-    </script>
+    <script src="renderer.js"></script>
 </body>
 </html>

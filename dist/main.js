@@ -41,87 +41,91 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
-const axios_1 = __importDefault(require("axios"));
 const fs = __importStar(require("fs-extra"));
-const adm_zip_1 = __importDefault(require("adm-zip"));
+const crypto = __importStar(require("crypto"));
 const child_process_1 = require("child_process");
+// Global variables to keep track of state
 let mainWindow = null;
 let vpnProcess = null;
-// Headers to trick Cloudflare during config download
-const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
-};
-// --- 1. CONFIG DOWNLOADER ---
-function downloadConfigs() {
+// Path to where configs are stored
+const CONFIG_DIR = path.join(electron_1.app.getPath('userData'), 'configs');
+// Auth files live in the app's own data folder (not the shared temp folder)
+// and are deleted as soon as OpenVPN exits.
+const AUTH_DIR = path.join(electron_1.app.getPath('userData'), 'auth');
+function listConfigs() {
     return __awaiter(this, void 0, void 0, function* () {
-        // We try to download the US16 bundle. 
-        // If this link dies in the future, change it to another one from vpnbook.com
-        const configUrl = 'https://www.vpnbook.com/free-openvpn-account/VPNBook.com-OpenVPN-US16.zip';
-        const downloadPath = path.join(electron_1.app.getPath('userData'), 'configs');
-        const zipPath = path.join(downloadPath, 'us16.zip');
-        yield fs.ensureDir(downloadPath);
-        try {
-            console.log(`Downloading configs from: ${configUrl}...`);
-            const response = yield (0, axios_1.default)({
-                method: 'get',
-                url: configUrl,
-                responseType: 'arraybuffer',
-                headers: HEADERS
-            });
-            yield fs.writeFile(zipPath, response.data);
-            const zip = new adm_zip_1.default(zipPath);
-            zip.extractAllTo(downloadPath, true);
-            console.log("Configs extracted successfully to:", downloadPath);
-        }
-        catch (error) {
-            console.error("Config download failed (likely 403/404). Expected if VPNBook blocked bots.");
-            console.error("You can manually download the zip and unzip it into:", downloadPath);
-        }
+        yield fs.ensureDir(CONFIG_DIR); // Make sure folder exists
+        const files = yield fs.readdir(CONFIG_DIR);
+        // Filter for .ovpn files only
+        // Returns list like ['vpnbook-us16-tcp443.ovpn', 'vpnbook-de20-tcp443.ovpn']
+        return files.filter(f => f.endsWith('.ovpn'));
     });
 }
-// --- 2. VPN CONNECTION LOGIC ---
-electron_1.ipcMain.handle('connect-vpn', (event_1, _a) => __awaiter(void 0, [event_1, _a], void 0, function* (event, { password }) {
-    var _b, _c;
-    const configDir = path.join(electron_1.app.getPath('userData'), 'configs');
-    // 1. Check if configs exist
-    let files = [];
+function removeAuthFile(authPath) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield fs.remove(authPath);
+        }
+        catch (e) { }
+    });
+}
+// --- 1. SERVER SCANNER ---
+electron_1.ipcMain.handle('get-servers', () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        files = yield fs.readdir(configDir);
+        return yield listConfigs();
     }
     catch (e) {
-        return event.sender.send('vpn-log', `Error: Config folder missing at ${configDir}`);
+        console.error("Could not scan configs:", e);
+        return [];
     }
-    // 2. Find a valid .ovpn file (looks for TCP 443 usually)
-    const ovpnFile = files.find(f => f.includes('tcp443') && f.endsWith('.ovpn'));
-    if (!ovpnFile) {
-        event.sender.send('vpn-log', 'Error: No .ovpn file found! Please download configs manually.');
-        event.sender.send('vpn-log', `Please unzip VPNBook configs into: ${configDir}`);
-        return;
+}));
+// --- 2. CONNECT ---
+electron_1.ipcMain.handle('connect-vpn', (event_1, _a) => __awaiter(void 0, [event_1, _a], void 0, function* (event, { password, configName }) {
+    var _b, _c;
+    // Rejections are logged and also returned so the UI can leave the 'Connecting...' state
+    const fail = (error) => {
+        event.sender.send('vpn-log', error);
+        return { ok: false, error };
+    };
+    // Basic Validation
+    if (typeof configName !== 'string' || !configName) {
+        return fail('Error: No server selected.');
     }
-    const configPath = path.join(configDir, ovpnFile);
-    const authPath = path.join(electron_1.app.getPath('temp'), 'vpn_auth.txt');
-    // 3. Write credentials
-    // Username is always 'vpnbook' for this provider
-    yield fs.writeFile(authPath, `vpnbook\n${password}`);
-    console.log(`Connecting to ${ovpnFile}...`);
-    // 4. Spawn OpenVPN
-    // IMPORTANT: Ensure this path matches your OpenVPN installation
+    // Only accept a config that actually exists in CONFIG_DIR (blocks paths like "..\\..\\evil.ovpn")
+    const available = yield listConfigs().catch(() => []);
+    if (path.basename(configName) !== configName || !available.includes(configName)) {
+        return fail('Error: Invalid server selection.');
+    }
+    // Password must be a single line, otherwise it could inject extra lines into the auth file
+    if (typeof password !== 'string' || !password || /[\r\n]/.test(password)) {
+        return fail('Error: Invalid password.');
+    }
+    const configPath = path.join(CONFIG_DIR, configName);
+    // Kill any existing connection before starting a new one
+    if (vpnProcess) {
+        try {
+            vpnProcess.kill();
+        }
+        catch (e) { }
+        vpnProcess = null;
+    }
+    // Create Auth File (unique name per connection, owner-only permissions where supported)
+    yield fs.ensureDir(AUTH_DIR);
+    const authPath = path.join(AUTH_DIR, `auth-${crypto.randomBytes(8).toString('hex')}.txt`);
+    yield fs.writeFile(authPath, `vpnbook\n${password}`, { mode: 0o600 });
+    console.log(`Connecting to ${configName}...`);
+    // IMPORTANT: Make sure this path is still correct for your PC
     const openVpnCmd = 'C:\\Program Files\\OpenVPN\\bin\\openvpn.exe';
-    if (vpnProcess)
-        vpnProcess.kill();
     try {
-        vpnProcess = (0, child_process_1.spawn)(openVpnCmd, [
+        const proc = (0, child_process_1.spawn)(openVpnCmd, [
             '--config', configPath,
             '--auth-user-pass', authPath
         ]);
-        // 5. Handle Logs
-        (_b = vpnProcess.stdout) === null || _b === void 0 ? void 0 : _b.on('data', (d) => {
+        vpnProcess = proc;
+        (_b = proc.stdout) === null || _b === void 0 ? void 0 : _b.on('data', (d) => {
             const log = d.toString();
             event.sender.send('vpn-log', log);
             if (log.includes('Initialization Sequence Completed')) {
@@ -129,26 +133,72 @@ electron_1.ipcMain.handle('connect-vpn', (event_1, _a) => __awaiter(void 0, [eve
             }
             if (log.includes('AUTH_FAILED')) {
                 event.sender.send('vpn-status', 'AuthFailed');
-                vpnProcess === null || vpnProcess === void 0 ? void 0 : vpnProcess.kill();
+                // Don't kill automatically yet, let user read the error
             }
         });
-        (_c = vpnProcess.stderr) === null || _c === void 0 ? void 0 : _c.on('data', (d) => console.error(`VPN Error: ${d}`));
+        (_c = proc.stderr) === null || _c === void 0 ? void 0 : _c.on('data', (d) => console.error(`VPN Error: ${d}`));
+        // spawn failures (e.g. openvpn.exe not found) arrive here, not in the catch below
+        proc.on('error', (e) => {
+            event.sender.send('vpn-log', `CRITICAL ERROR: ${e.message}`);
+        });
+        // cleanup on exit
+        proc.on('close', (code) => {
+            console.log(`OpenVPN exited with code ${code}`);
+            removeAuthFile(authPath);
+            // Ignore exits from an old process that was replaced by a newer connection
+            if (vpnProcess === proc) {
+                event.sender.send('vpn-status', 'Disconnected');
+                vpnProcess = null;
+            }
+        });
     }
     catch (e) {
-        event.sender.send('vpn-log', `CRITICAL ERROR: Could not start OpenVPN. Is it installed? \n${e.message}`);
+        removeAuthFile(authPath);
+        return fail(`CRITICAL ERROR: ${e.message}`);
     }
+    return { ok: true };
+}));
+// --- 3. DISCONNECT ---
+electron_1.ipcMain.handle('disconnect-vpn', () => __awaiter(void 0, void 0, void 0, function* () {
+    if (vpnProcess) {
+        vpnProcess.kill();
+    }
+    return 'Disconnected';
 }));
 function createWindow() {
     mainWindow = new electron_1.BrowserWindow({
         width: 500,
-        height: 700,
+        height: 750,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            // The page only talks to the main process through preload.ts
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true
         }
     });
+    // Never open new windows or navigate away from the local UI
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
     mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
-    // Try to download configs on launch
-    downloadConfigs();
 }
-electron_1.app.whenReady().then(createWindow);
+electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
+    // Remove any password files left behind by a crash
+    yield fs.remove(AUTH_DIR).catch(() => { });
+    // ...and the plaintext file older versions of this app left in the temp folder
+    yield fs.remove(path.join(electron_1.app.getPath('temp'), 'vpn_auth.txt')).catch(() => { });
+    createWindow();
+}));
+electron_1.app.on('will-quit', () => {
+    if (vpnProcess) {
+        try {
+            vpnProcess.kill();
+        }
+        catch (e) { }
+    }
+    // Synchronous so it completes before the app exits
+    try {
+        fs.removeSync(AUTH_DIR);
+    }
+    catch (e) { }
+});
