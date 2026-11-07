@@ -4,8 +4,8 @@
   "description": "My VPN Client",
   "main": "dist/main.js",
   "scripts": {
-    "build": "node init && tsc",
-    "start": "node init && tsc && electron ."
+    "build": "tsc",
+    "start": "tsc && electron ."
   },
   "keywords": [],
   "author": "",
@@ -16,8 +16,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "dotenv": "^8.2.0",
-    "fs-extra": "^11.3.2",
-    "node-fetch": "^3.3.2"
+    "fs-extra": "^11.3.2"
   }
 }
